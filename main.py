@@ -24,6 +24,7 @@ async def say_hello(ctx: inngest.Context) -> str:
 @inngest_client.create_function(
     fn_id="make-report",
     trigger=inngest.TriggerEvent(event="report/requested"),
+    retries=2,
 )
 async def make_report(ctx: inngest.Context) -> str:
     report_id = ctx.event.data["id"]
@@ -32,6 +33,8 @@ async def make_report(ctx: inngest.Context) -> str:
     await ctx.step.sleep("do-the-slow-work", 8000)
 
     async def build() -> str:
+        if topic == "fail":
+            raise RuntimeError("The report oven is broken!")
         REPORTS[report_id]["status"] = "done"
         REPORTS[report_id]["result"] = f"A very serious report about {topic}"
         return REPORTS[report_id]["result"]
@@ -43,6 +46,8 @@ async def make_report(ctx: inngest.Context) -> str:
 @app.post("/reports")
 async def create_report(body: dict | None = None):
     topic = (body or {}).get("topic")
+    if not topic:
+        raise HTTPException(status_code=400, detail="topic is required")
     report_id = str(uuid.uuid4())
     REPORTS[report_id] = {"id": report_id, "topic": topic, "status": "pending"}
     await inngest_client.send(
