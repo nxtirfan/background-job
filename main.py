@@ -65,9 +65,22 @@ def get_report(report_id: str):
     return REPORTS[report_id]
 
 
+@inngest_client.create_function(
+    fn_id="heartbeat",
+    trigger=inngest.TriggerCron(cron="* * * * *"),
+)
+async def heartbeat(ctx: inngest.Context) -> str:
+    pending = sum(r["status"] == "pending" for r in REPORTS.values())
+    done = sum(r["status"] == "done" for r in REPORTS.values())
+    failed = sum(r["status"] == "failed" for r in REPORTS.values())
+    summary = f"heartbeat: {pending} pending, {done} done, {failed} failed"
+    print(summary, flush=True)
+    return summary
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
-serve(app, inngest_client, [say_hello, make_report])
+serve(app, inngest_client, [say_hello, make_report, heartbeat])
