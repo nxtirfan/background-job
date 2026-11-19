@@ -1,0 +1,2 @@
+inngest>=0.3.0
+uvicorn>=0.20.0

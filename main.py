@@ -34,6 +34,7 @@ async def make_report(ctx: inngest.Context) -> str:
 
     async def build() -> str:
         if topic == "fail":
+            REPORTS[report_id]["status"] = "failed"
             raise RuntimeError("The report oven is broken!")
         REPORTS[report_id]["status"] = "done"
         REPORTS[report_id]["result"] = f"A very serious report about {topic}"
@@ -46,7 +47,7 @@ async def make_report(ctx: inngest.Context) -> str:
 @app.post("/reports")
 async def create_report(body: dict | None = None):
     topic = (body or {}).get("topic")
-    if not topic:
+    if not isinstance(topic, str) or not topic.strip():
         raise HTTPException(status_code=400, detail="topic is required")
     report_id = str(uuid.uuid4())
     REPORTS[report_id] = {"id": report_id, "topic": topic, "status": "pending"}

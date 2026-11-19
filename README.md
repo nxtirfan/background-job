@@ -95,3 +95,67 @@ Reports live in an in-memory dict, so they reset when the API restarts. That
 is intentional for this assignment — the same lesson as the first CRUD API.
 Inngest keeps the job state and step results outside the API process, which is
 why a job can outlive a request.
+
+## AI vs me (bonus stage)
+
+I wrote the prompt from memory (`ai-version/PROMPT.md`) and asked a free
+OpenRouter model (`nvidia/nemotron-3.5-super-vl:free`) to build the same job
+system. Its code is quarantined in `ai-version/ai1/` and `ai-version/ai2/`;
+`ai-version/diff.txt` is the side-by-side diff. I fired the Stage 2 and Stage
+3 checkpoints at both rounds.
+
+**Round 1** produced a plausible-looking 79-line app: `/health`, a 202
+endpoint, a status endpoint, a make-report function and a cron function — but
+it fails at import:
+
+```
+AttributeError: module 'inngest' has no attribute 'Client'
+```
+
+There is no `inngest.Client` in the Python SDK (it is `inngest.Inngest`), no
+`inngest.serve` at package level (the helper lives in `inngest.fast_api`), its
+functions declared a second `step` argument that the SDK never passes, and
+`@step.run("build")` as a decorator does not exist. It also used
+`await step.sleep("wait", "8s")` — a JavaScript-style string where the Python
+SDK wants an int number of milliseconds. It silently omitted `say-hello`
+entirely. **Round 2** fixed the sleep call to `await ctx.step.sleep(
+"do-the-slow-work", 8000)`, but regressed the rest: 46 lines of "demo" app
+with no FastAPI endpoints, no reports dict, no `retries=2`, no `topic: "fail"`
+branch, and still the non-existent `inngest.Client` — it fails at import the
+same way. Neither round could answer a single checkpoint request.
+
+What the AI did better — and I understand it, I adopted it: round 1 validated
+the topic with `isinstance(topic, str) and topic.strip()` (mine only checked
+truthiness, so `42` was accepted), and it set the report's status to
+`"failed"` when the build step raised (mine left failed reports stuck at
+`"pending"` forever, which made the heartbeat's failed count meaningless).
+Both are now in my `main.py`.
+
+What it got wrong or silently ignored:
+
+1. **Wrong SDK API surface, twice.** `inngest.Client`, package-level
+   `inngest.serve`, a second `step` handler argument, and a `@step.run`
+   decorator are all invented — every one would be caught by running the
+   file, which is exactly what I did before judging it.
+2. **The 8-second sleep was fake in round 1.** Passing `"8s"` to an SDK that
+   expects milliseconds is the same class of bug I hit in my own Stage 2 —
+   except mine silently produced a done report in under a second, so the
+   only way to catch it was polling at 1 second instead of trusting a green
+   "Completed" in the dashboard.
+3. **Round 2 traded correctness for the one flagged line.** It absorbed the
+   sleep correction and dropped the API entirely — a reminder that "fix the
+   diff" with no regression check can make a system less complete.
+4. **No `say-hello` in either round.** The simplest function, with its own
+   explicit requirement, was silently left out both times.
+
+What my prompt forgot to specify — and what the AI silently decided for me:
+I did not spell out the exact import/wiring names (`inngest.Inngest`,
+`inngest.fast_api.serve`, `ctx.step.run`) in round 1, assuming a model would
+look them up — it invented plausible alternatives instead. I also never said
+what status a failed report should show, so round 1 chose `"failed"` (better
+than my choice) while round 2 chose no status at all.
+
+One sentence on what changed between rounds: naming the exact async sleep
+syntax in round 2 fixed that one line but cost the rest of the system — no
+prompt wording substitutes for running the generated code against the same
+checkpoints you used while building it yourself.

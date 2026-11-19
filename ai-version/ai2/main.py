@@ -1,0 +1,46 @@
+# README
+# Run the Inngest API locally (dev mode):
+#     INNGEST_DEV=1 inngest serve --app main:client --dev
+#
+# Or serve the ASGI app directly with uvicorn:
+#     INNGEST_DEV=1 uvicorn main:app --reload
+#
+
+import inngest
+from inngest import TriggerCron
+
+client = inngest.Client(app_id="demo-app")
+
+
+@client.create_function(
+    fn_id="event-demo",
+    trigger=inngest.TriggerEvent(event="demo.event"),
+)
+async def event_demo(ctx: inngest.Context) -> None:
+    # Async sleep for 8000 ms (8 seconds).
+    await ctx.step.sleep("do-the-slow-work", 8000)
+
+    async def build() -> str:
+        # Nested async def handler for ctx.step.run.
+        return "done"
+
+    await ctx.step.run("build-step", build)
+
+
+@client.create_function(
+    fn_id="cron-demo",
+    trigger=TriggerCron(cron="* * * * *"),
+)
+async def cron_demo(ctx: inngest.Context) -> None:
+    # Runs every minute.
+    pass
+
+
+app = inngest.serve(client, [event_demo, cron_demo])
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
